@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CSV Viewer & Editor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f4f4f4;
+    }
+    textarea {
+      width: 100%;
+      height: 120px;
+      font-family: monospace;
+    }
+    .controls {
+      margin: 10px 0;
+    }
+    .controls label {
+      margin-right: 10px;
+    }
+    .viewer {
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: auto;
+      max-height: 500px;
+      white-space: pre-line;
+    }
+    .record {
+      margin-bottom: 12px;
+      padding: 6px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .line {
+      margin: 2px 0;
+    }
+    .key {
+      font-weight: bold;
+      margin-right: 5px;
+    }
+    input.cell {
+      border: 1px solid #ccc;
+      padding: 2px 4px;
+      font-size: inherit;
+      width: 80%;
+    }
+    .pagination {
+      margin-top: 10px;
+    }
+    button {
+      margin: 2px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>CSV Viewer & Editor</h2>
+  <p>Paste your CSV text below:</p>
+  <textarea id="csvInput" placeholder="Paste CSV here"></textarea>
+  
+  <div class="controls">
+    <label>Delimiter:
+      <input type="text" id="delimiter" value="," size="2" />
+    </label>
+    <label>Font size:
+      <input type="number" id="fontSize" value="14" min="8" max="40" /> px
+    </label>
+    <label>Rows per page:
+      <input type="number" id="rowsPerPage" value="10" min="1" max="1000" />
+    </label>
+    <button id="renderBtn">Render CSV</button>
+    <button id="exportBtn">Export as CSV</button>
+  </div>
+
+  <div class="viewer" id="viewer"></div>
+  <div class="pagination" id="pagination"></div>
+
+  <script>
+    const csvInput = document.getElementById("csvInput");
+    const delimiterInput = document.getElementById("delimiter");
+    const fontSizeInput = document.getElementById("fontSize");
+    const rowsPerPageInput = document.getElementById("rowsPerPage");
+    const viewer = document.getElementById("viewer");
+    const pagination = document.getElementById("pagination");
+    const renderBtn = document.getElementById("renderBtn");
+    const exportBtn = document.getElementById("exportBtn");
+
+    let csvData = [];
+    let headers = [];
+    let currentPage = 1;
+
+    function parseCSV(text, delimiter) {
+      if (delimiter === "\\t" || delimiter === "/t") {
+        delimiter = "\t"; // real tab
+      }
+      const rows = text.split(/\r?\n/).filter(r => r.trim() !== "");
+      return rows.map(row => {
+        const parts = row.split(delimiter);
+        return parts.map(cell => {
+          cell = cell.trim();
+          if (cell.startsWith('"') && cell.endsWith('"')) {
+            cell = cell.slice(1, -1);
+          }
+          return cell;
+        });
+      });
+    }
+
+    function renderPage(page) {
+      viewer.innerHTML = "";
+      viewer.style.fontSize = fontSizeInput.value + "px";
+      const rowsPerPage = parseInt(rowsPerPageInput.value, 10);
+      const start = (page - 1) * rowsPerPage;
+      const end = start + rowsPerPage;
+      const pageData = csvData.slice(start, end);
+
+      pageData.forEach((row, rowIndex) => {
+        const rec = document.createElement("div");
+        rec.className = "record";
+        row.forEach((val, colIndex) => {
+          const line = document.createElement("div");
+          line.className = "line";
+
+          const label = document.createElement("span");
+          label.className = "key";
+          label.innerText = headers[colIndex] || "Column " + (colIndex + 1);
+
+          const input = document.createElement("input");
+          input.type = "text";
+          input.value = val;
+          input.className = "cell";
+          input.oninput = e => {
+            csvData[start + rowIndex][colIndex] = e.target.value;
+          };
+
+          line.appendChild(label);
+          line.appendChild(input);
+          rec.appendChild(line);
+        });
+        viewer.appendChild(rec);
+      });
+
+      renderPagination();
+    }
+
+    function renderPagination() {
+      pagination.innerHTML = "";
+      const rowsPerPage = parseInt(rowsPerPageInput.value, 10);
+      const totalPages = Math.ceil(csvData.length / rowsPerPage);
+      if (totalPages <= 1) return;
+
+      const prevBtn = document.createElement("button");
+      prevBtn.innerText = "Prev";
+      prevBtn.disabled = currentPage === 1;
+      prevBtn.onclick = () => {
+        if (currentPage > 1) {
+          currentPage--;
+          renderPage(currentPage);
+        }
+      };
+      pagination.appendChild(prevBtn);
+
+      for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+          const btn = document.createElement("button");
+          btn.innerText = i;
+          btn.disabled = i === currentPage;
+          btn.onclick = () => {
+            currentPage = i;
+            renderPage(currentPage);
+          };
+          pagination.appendChild(btn);
+        } else if (
+          (i === currentPage - 3 && currentPage - 3 > 1) ||
+          (i === currentPage + 3 && currentPage + 3 < totalPages)
+        ) {
+          const span = document.createElement("span");
+          span.innerText = "...";
+          pagination.appendChild(span);
+        }
+      }
+
+      const nextBtn = document.createElement("button");
+      nextBtn.innerText = "Next";
+      nextBtn.disabled = currentPage === totalPages;
+      nextBtn.onclick = () => {
+        if (currentPage < totalPages) {
+          currentPage++;
+          renderPage(currentPage);
+        }
+      };
+      pagination.appendChild(nextBtn);
+    }
+
+    renderBtn.addEventListener("click", () => {
+      const text = csvInput.value;
+      const delimiter = delimiterInput.value || ",";
+      const parsed = parseCSV(text, delimiter);
+      if (parsed.length > 0) {
+        headers = parsed[0];
+        csvData = parsed.slice(1);
+        currentPage = 1;
+        renderPage(currentPage);
+      } else {
+        viewer.innerHTML = "<em>No data found</em>";
+        pagination.innerHTML = "";
+      }
+    });
+
+    exportBtn.addEventListener("click", () => {
+      const delimiter = delimiterInput.value || ",";
+      const rows = [headers, ...csvData];
+      const csvString = rows
+        .map(row =>
+          row
+            .map(cell => {
+              // Wrap in quotes if contains delimiter or newline
+              if (cell.includes(delimiter) || cell.includes("\n")) {
+                return `"${cell}"`;
+              }
+              return cell;
+            })
+            .join(delimiter)
+        )
+        .join("\n");
+
+      const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "edited.csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  </script>
+</body>
+</html>
